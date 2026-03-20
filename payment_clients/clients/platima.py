@@ -1,14 +1,11 @@
-from typing import Callable, Awaitable
 from dataclasses import dataclass
 import hashlib
 from datetime import datetime
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from payment_clients.dto import BaseCreatePaymentDto, PaymentDto
-from payment_clients.interface import IPaymentClient
+from payment_clients._abstract import AbstractPaymentClient, _PaymentConfig
 
 
 class PlatimaWebhookSchema(BaseModel):
@@ -31,9 +28,17 @@ class PlatimaCreatePaymentDto(BaseCreatePaymentDto):
     failed_url: str | None = None
 
 
-class PlatimaClient(IPaymentClient):
-    INCLUDE_WEBHOOKS = True
-    CREATE_PAYMENT_DTO = PlatimaCreatePaymentDto
+class PlatimaConfig(_PaymentConfig):
+    PLATIMA_API_KEY_PROJECT: str
+    PLATIMA_PROJECT_ID: int
+    PLATIMA_BASE_URL: str = 'https://platimapayments.com/api/v1'
+
+
+class PlatimaClient(AbstractPaymentClient):
+    include_webhooks = True
+    webhook_schema = PlatimaWebhookSchema
+    create_payment_dto = PlatimaCreatePaymentDto
+    config = PlatimaConfig
 
     def __init__(
             self,
@@ -43,9 +48,20 @@ class PlatimaClient(IPaymentClient):
             **kwargs
     ):
         super().__init__(**kwargs)
+
         self.api_key_project = api_key_project
         self.project_id = project_id
         self.base_url = base_url
+
+    @classmethod
+    def from_env_file(cls, env_file_path: str = '.env', **kwargs) -> 'PlatimaClient':
+        settings = cls.config(env_path=env_file_path)
+        return cls(
+            api_key_project=settings.PLATIMA_API_KEY_PROJECT,
+            project_id=settings.PLATIMA_PROJECT_ID,
+            base_url=settings.PLATIMA_BASE_URL,
+            **kwargs
+        )
 
     @staticmethod
     def _build_headers(signature):
@@ -114,32 +130,12 @@ class PlatimaClient(IPaymentClient):
                 return True
         return False
 
-    def create_webhook_router(
-            self, process_func: Callable[[PlatimaWebhookSchema], Awaitable[bool]], path: str = ""
-    ) -> APIRouter:
-        router = APIRouter()
-
-        def _check_sign(data: PlatimaWebhookSchema, api_key_project=self.api_key_project) -> bool:
+    def check_webhook_sign(self, data: PlatimaWebhookSchema, headers: dict) -> bool:
+        def _check_sign(_data: PlatimaWebhookSchema, api_key_project=self.api_key_project) -> bool:
             expected_sign = hashlib.sha256(
-                f"{api_key_project}{data.id}{data.order_id}{data.project_id}{data.amount:.2f}{data.currency}"
+                f"{api_key_project}{_data.id}{_data.order_id}{_data.project_id}{_data.amount:.2f}{_data.currency}"
                 .encode("utf-8")
             ).hexdigest()
-            return expected_sign == data.sign
+            return expected_sign == _data.sign
 
-        @router.post(path=path)
-        async def webhook(data: PlatimaWebhookSchema):
-            # платима требует возврата 'ok' + 200 в случае успешной обработки
-            content = 'not-ok'
-            status_code = 419
-
-            if not _check_sign(data):
-                return JSONResponse(content=content, status_code=status_code)
-
-            res = await process_func(data)
-
-            if res:
-                content = 'ok'
-                status_code = 200
-            return JSONResponse(content=content, status_code=status_code)
-
-        return router
+        return _check_sign(_data=data)

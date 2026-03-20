@@ -1,5 +1,7 @@
 # 🏦 Набор готовых интеграций платежных систем
 
+# Payment_clients v0.2.0
+
 ## ❓ В чем суть проекта
 
 Данный код позволяет быстро подключить платежные системы в ваше проект.
@@ -14,20 +16,20 @@
 
 ## 💎Какие платежные системы сейчас поддерживаются ?
 
-- [PLATIMA](https://platima.com/)
-- [ANTILOPA](https://antilopay.com/)
+- [Platima](https://platima.com/)
+- [Antilopa](https://antilopay.com/)
+- [Cryptomus](https://doc.cryptomus.com/ru)
+- [Aaio](https://wiki.aaio.so/api)
 
 P.S - будут еще добавляться
 
 ## ⚙️ Стек
 
-За основу взяты:
-
 - httpx для работы с запросами
-- fastapi для обработки вебхуков
 
 Также используются сторонние библиотеки,
-например, **cryptography** для работы с подписями запросов у провайдера [ANTILOPA](https://antilopay.com/)
+например, **cryptography** для работы с подписями запросов у провайдера [ANTILOPA](https://antilopay.com/);
+**fastapi**, **flask**, **django**, **aiohttp** - для обработки вебхуков
 
 ## 📁 Структура
 
@@ -38,15 +40,18 @@ P.S - будут еще добавляться
 │   │   └── {entity}.py     # Клиент платежной системы {entity}
 │   ├── dto.py      # датаклассы для работы с платежами
 │   ├── exception.py    # ошибки, в основном для фабрики (клиент не найден | клиент не зарегистрирован)
-│   ├── factory.py      # фабрика для работы с несколькими клиентами
-│   ├── http_client.py      # класс для работы с http запросами
-│   └── interface.py    # интерфейс для клиентов 
+│   ├── _factory.py      # фабрика для работы с несколькими клиентами
+│   ├── _http_client.py      # класс для работы с http запросами
+│   └── _abstract.py    # абстрактный класс для клиентов 
 ├── README.md
+├── CHANGELOG.md
+├── .env_example
 └── requirements.txt
 ```
 
 Если вы хотите добавить платежного провайдера которого нет, добавьте файл с соответствующим названием в папку `/clients`
-и реализуйте дочерний класс от интерфейса `IPaymentClient` из файла `interface.py`, затем добавьте импорт вашего класса,
+и реализуйте дочерний класс от интерфейса `AbstractPaymentClient` из файла `_abstract.py`, затем добавьте импорт вашего
+класса,
 dto и (опционально) pydantic схемы для вебхука в файл `__init__.py`
 
 ## ▶️ Примеры кода & Быстрый старт
@@ -104,11 +109,11 @@ async def main() -> tuple[PaymentDto, PaymentDto]:
                 project_id=1,
                 callback_url='https://your-callback-url'
             ),
-            AntilopaClient(
-                secret_id='your-secret-id',
-                project_id='your-project-id',
-                private_key='your-private-key',
-                public_key='your-public-key',
+            # Так же можно не указывать параметры вручную, а считать их из .env файла.
+            # Чтобы узнать нейминг/формат записи переменных .env файла, посмотрите атрибут config 
+            # соответствующего класса платежного клиента
+            AntilopaClient.from_env_file(
+                env_file_path='.env',
                 callback_url='https://your-callback-url'
             )
         ]
@@ -147,7 +152,8 @@ if __name__ == '__main__':
 import asyncio
 
 from fastapi import FastAPI
-from payment_clients import PlatimaClient, PlatimaWebhookSchema
+from payment_clients import PlatimaClient
+from payment_clients.clients.platima import PlatimaWebhookSchema
 
 PLATIMA_WEBHOOK_PATH = '/webhook/platima'
 
@@ -164,7 +170,7 @@ async def main() -> FastAPI:
         api_key_project='your-project-id',
         project_id=1,
     )
-    platima_webhook_router = platima_client.create_webhook_router(
+    platima_webhooks = platima_client.get_webhooks(
         process_func=platima_process_webhook,
         path=PLATIMA_WEBHOOK_PATH
     )
@@ -177,8 +183,8 @@ async def main() -> FastAPI:
     async def ping():
         return "pong"
 
-    # Подключаем вебхук с адресом PLATIMA_WEBHOOK_PATH
-    app.include_router(platima_webhook_router)
+    # Подключаем нужный для нагешо фреймворка вебхук с адресом PLATIMA_WEBHOOK_PATH
+    app.include_router(platima_webhooks.fastapi)
     return app
 
 

@@ -1,23 +1,23 @@
 from typing import TypeVar, Type
 
-from payment_clients.interface import IPaymentClient, TCreatePaymentDto
+from payment_clients._abstract import AbstractPaymentClient, TCreatePaymentDto
 from payment_clients.exception import PaymentClientRegisterExc, PaymentClientNotFoundExc
 from payment_clients.dto import PaymentDto
 
-T = TypeVar('T', bound=IPaymentClient)
+T = TypeVar('T', bound=AbstractPaymentClient)
 
 
 class PaymentFactory:
 
     def __init__(self):
-        self._clients: dict[Type[IPaymentClient] | TCreatePaymentDto, IPaymentClient] = {}
+        self._clients: dict[Type[AbstractPaymentClient] | TCreatePaymentDto, AbstractPaymentClient] = {}
 
     def register(self, client: T) -> T:
         client_type = type(client)
         if client_type in self._clients:
             raise PaymentClientRegisterExc(client_type.__name__)
         self._clients[client_type] = client
-        self._clients[client.CREATE_PAYMENT_DTO] = client
+        self._clients[client.create_payment_dto] = client
         return client
 
     def register_many(self, clients: list[T]) -> list[T]:
@@ -34,10 +34,10 @@ class PaymentFactory:
         return client
 
     @property
-    def all_clients(self) -> list[IPaymentClient]:
+    def all_clients(self) -> list[AbstractPaymentClient]:
         return list(self._clients.values())
 
-    def has_client(self, client_type: Type[IPaymentClient]) -> bool:
+    def has_client(self, client_type: Type[AbstractPaymentClient]) -> bool:
         return client_type in self._clients
 
     async def close_connections(self):
