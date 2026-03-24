@@ -37,22 +37,22 @@ class HttpClient:
     ):
         if httpx_client is None:
             httpx_client = httpx.AsyncClient()
-        self.httpx_client = httpx_client
+        self._httpx_client = httpx_client
 
     async def close(self):
-        await self.httpx_client.aclose()
+        await self._httpx_client.aclose()
 
     async def request(self, method: str, url: str, **kwargs) -> httpx.Response:
         try:
             # Пытаемся выполнить запрос
-            response = await self.httpx_client.request(method, url, **kwargs)
+            response = await self._httpx_client.request(method, url, **kwargs)
             response.raise_for_status()
             return response
         except httpx.TimeoutException as e:
             # Специфичная обработка таймаутов
             raise HttpExc(
                 error_type="timeout_error",
-                error_message=f"Request timeout after {self.httpx_client.timeout.connect}s",
+                error_message=f"Request timeout after {self._httpx_client.timeout.connect}s",
                 status_code=None,
                 response_headers=None,
                 response_body=None

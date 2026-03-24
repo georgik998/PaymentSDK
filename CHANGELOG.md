@@ -7,6 +7,109 @@
 
 ---
 
+## [0.2.1] - 2026-03-24
+
+### Добавлено
+
+#### 1) Удобная поддержка прокси
+Ранее прокси можно было добавить только через указание в `httpx_client`, сейчас для
+этого есть отдельный параметр `proxy` в методе `__init__` 
+
+Раньше:
+```python
+client = PlatimaClient.from_env_file(
+  
+    env_file_path='.env',
+    httpx_client=httpx.AsyncClient(
+        proxy='http://log:pass@ip:port',
+    )
+)
+```
+Сейчас:
+```python
+client = PlatimaClient.from_env_file(
+    env_file_path='.env',
+    proxy='http://log:pass@ip:port'
+)
+```
+**Важное замечание !**
+
+Если прокси были переданы через параметр `proxy` и через `httpx_client`, прокси переданные
+через `httpx_client` будут игнорироваться
+
+Пример:
+```python
+client = PlatimaClient.from_env_file(
+    env_file_path='.env',
+    # Для PlatimaClient будут использоваться эти прокси
+    proxy='http://log:pass@ip:port',
+    httpx_client=httpx.AsyncClient(
+        # Данные прокси будут игнорироваться
+        proxy='http://log:pass@ip:another_port'
+    )
+)
+```
+
+Также, если вы используете фабрику для работы с платежными клиентами, вы можете указать общие
+прокси, которые будут использоваться по умолчанию для всех клиентов, если в самом клиенте не указано другого. Если вы хотите чтобы прокси фабрики
+использовались для всех клиентов, независимо от того, указаны ли у них прокси, используйте параметр `strict_proxy` при
+создании фабрики
+
+Пример c "нестрогими" прокси:
+
+`strict_proxy=False` - по умолчанию
+- Клиенты со своим прокси → используют свой
+- Клиенты без прокси → используют прокси фабрики
+```python
+payment_factory = PaymentFactory(
+  proxy='http://log:pass@ip:port'
+)
+
+payment_factory.register_many(
+    [
+        # PlatimaClient использует свои прокси, так как strict_proxy по умолчанию False
+        PlatimaClient.from_env_file(
+            env_file_path='.env',
+            callback_url='https://your-callback-url',
+            proxy='http://log:pass@ip:another_port'
+        ),
+        # AntilopaClient использует общие прокси из фабрики
+        AntilopaClient.from_env_file(
+            env_file_path='.env',
+            callback_url='https://your-callback-url'
+        )
+    ]
+)
+```
+Пример с "строгими" прокси:
+
+`strict_proxy=True` - указано вручную
+- Все клиенты → используют прокси фабрики (свой прокси игнорируется)
+```python
+payment_factory = PaymentFactory(
+  proxy='http://log:pass@ip:port',
+  strict_proxy=True
+)
+
+payment_factory.register_many(
+    [
+        # PlatimaClient использует общие прокси из фабрики, его прокси игнорируются, так как параметр strict_proxy=True
+        PlatimaClient.from_env_file(
+            env_file_path='.env',
+            callback_url='https://your-callback-url',
+            proxy='http://log:pass@ip:another_port'
+        ),
+        # AntilopaClient использует общие прокси из фабрики
+        AntilopaClient.from_env_file(
+            env_file_path='.env',
+            callback_url='https://your-callback-url'
+        )
+    ]
+)
+```
+
+---
+
 ## [0.2.0] - 2026-03-20
 
 ### Добавлено

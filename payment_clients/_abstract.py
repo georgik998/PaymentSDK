@@ -53,9 +53,27 @@ class AbstractPaymentClient(ABC, HttpClient):
     webhook_schema: Type[TPaymentWebhookSchema] = None
     include_webhooks: bool = False
 
-    def __init__(self, callback_url: str = None, httpx_client: httpx.AsyncClient = None):
+    def __init__(
+            self,
+            callback_url: str = None,
+            proxy: str = None,
+            httpx_client: httpx.AsyncClient = None
+    ):
+        """Если параметр proxy указан - игнорируется proxy которые указаны в httpx_client"""
+        if proxy:
+            if httpx_client is None:
+                httpx_client = httpx.AsyncClient()
+            httpx_client.proxy = proxy
+
         HttpClient.__init__(self, httpx_client=httpx_client)
+
         self.callback_url = callback_url
+        self.proxy = proxy
+
+    def update_proxy(self, proxy: str):
+        self.proxy = proxy
+        self._httpx_client.proxy = self.proxy
+
 
     @classmethod
     @abstractmethod
