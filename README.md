@@ -108,7 +108,9 @@ async def main() -> tuple[PaymentDto, PaymentDto]:
             PlatimaClient(
                 api_key_project='your-project-id',
                 project_id=1,
-                callback_url='https://your-callback-url'
+                callback_url='https://your-callback-url',
+                # Также можно указать прокси (подробнее в CHANGELOG.md, версия 0.2.1)
+                proxy='http://user:password@proxy.example.com:8080'
             ),
             # Так же можно не указывать параметры вручную, а считать их из .env файла.
             # Чтобы узнать нейминг/формат записи переменных .env файла, посмотрите атрибут config 
