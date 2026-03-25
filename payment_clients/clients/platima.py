@@ -95,7 +95,7 @@ class PlatimaClient(AbstractPaymentClient):
         if self.callback_url:
             json["callback_url"] = self.callback_url
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json=json,
             headers=self._build_headers(_create_signature())
@@ -115,7 +115,7 @@ class PlatimaClient(AbstractPaymentClient):
                 .encode("utf-8")
             ).hexdigest()
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json={
                 'project_id': self.project_id,

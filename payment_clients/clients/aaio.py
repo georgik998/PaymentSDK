@@ -115,14 +115,14 @@ class AaioClient(AbstractPaymentClient):
         json_data['merchant_id'] = self.merchant_id
         json_data['sign'] = _create_sign()
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             data=json_data,
             headers=self._create_headers(),
         )
         result = response.json()
         if result['type'] == 'success':
-            # Так как aaio не отдает id в их системе, нужно сделать доп. запрос ( возможно из ссылки вытащить можно )
+            # Так как aaio не отдает id в их системе, нужно сделать доп. запрос (возможно из ссылки вытащить можно)
             pay = await self._get_payment(order_id=data.order_id)
 
             return PaymentDto(
@@ -138,7 +138,7 @@ class AaioClient(AbstractPaymentClient):
             'merchant_id': self.merchant_id
         }
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             data=json_data,
             headers=self._create_headers(),
@@ -154,7 +154,7 @@ class AaioClient(AbstractPaymentClient):
             'merchant_id': self.merchant_id
         }
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             data=json_data,
             headers=self._create_headers(),
@@ -168,4 +168,3 @@ class AaioClient(AbstractPaymentClient):
         ).hexdigest()
         received_sign = data.sign
         return received_sign == expected_sign
-

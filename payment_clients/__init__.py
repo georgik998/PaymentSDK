@@ -6,7 +6,7 @@ from payment_clients.clients.antilopa import AntilopaClient, AntilopaCreatePayme
 from payment_clients.clients.cryptomus import CryptomusClient, CryptomusCreatePaymentDto
 from payment_clients.clients.aaio import AaioClient, AaioCreatePaymentDto
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "PaymentFactory",

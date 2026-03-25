@@ -9,20 +9,13 @@ T = TypeVar('T', bound=AbstractPaymentClient)
 
 class PaymentFactory:
 
-    def __init__(self, proxy: str = None, strict_proxy: bool = False):
-        self.proxy = proxy
-        self.strict_proxy = strict_proxy
+    def __init__(self):
         self._clients: dict[Type[AbstractPaymentClient] | TCreatePaymentDto, AbstractPaymentClient] = {}
 
     def register(self, client: T) -> T:
         client_type = type(client)
         if client_type in self._clients:
             raise PaymentClientRegisterExc(client_type.__name__)
-
-        if self.strict_proxy and self.proxy:
-            client.update_proxy(proxy=self.proxy)
-        elif not self.strict_proxy and self.proxy and client.proxy is None:
-            client.update_proxy(proxy=self.proxy)
 
         self._clients[client_type] = client
         self._clients[client.create_payment_dto] = client

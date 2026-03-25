@@ -128,7 +128,7 @@ class CryptomusClient(AbstractPaymentClient):
         # убираем None поля
         json_data = {k: v for k, v in json_data.items() if v is not None}
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json=json_data,
             headers=self.create_headers(req_body=json_data)
@@ -159,7 +159,7 @@ class CryptomusClient(AbstractPaymentClient):
         if order_id:
             json_data = {'order_id': order_id}
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json=json_data,
             headers=self.create_headers(json_data)

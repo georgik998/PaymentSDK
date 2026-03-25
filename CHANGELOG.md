@@ -5,6 +5,61 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/),
 и этот проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+#### UPD: Все версии до 1.0.0 являются тестовыми, находящимися в процессе разработки. Первая стабильная и полностью рабочая версия появится только с выходом v1.0.0
+
+---
+
+## [0.3.0] - 2026-03-25
+
+### Изменено
+
+#### 1) Удален метод `get_webhooks` у `AbstractPaymentClient`
+
+Вместо него появилось 4 отдельных метода:
+- `get_fastapi_webhook`
+- `get_flask_webhook`
+- `get_aiohttp_webhook`
+- `get_django_webhook`
+
+Каждый из методов является `@classmethod`
+
+Теперь вместо:
+```python
+platima_webhooks = platima_client.get_webhooks(
+    process_func=platima_process_webhook,
+    path=PLATIMA_WEBHOOK_PATH
+)
+platima_fastapi_webhook = platima_webhooks.fastapi
+```
+Используйте:
+```python
+platima_fastapi_webhook = platima_client.get_fastapi_webhook(
+    process_func=platima_process_webhook,
+    path=PLATIMA_WEBHOOK_PATH
+)
+```
+
+#### 2) Класс `AbstractPaymentClient` теперь не наследуется от `HttpClient`
+Раньше `AbstractPaymentClient` был дочерним классом от `HttpClient`, сейчас же он сам создает этот класс внутри себя,
+присваивая его как атрибут. 
+
+у `AbstractPaymentClient` также остался параметр `httpx_client: httpx.AsyncClient` в методе `__init__` для кастомной
+настройки работы с http запросами
+
+#### 3) Убрана поддержка прокси
+Поддержка прокси добавленная в версии **0.2.1** убрана, так как она имела много недоработок, ошибок и багов. Сейчас если вы
+хотите использовать прокси, указывайте их при создании `httpx.AsyncClient` при передаче его в `HttpClient`
+
+Пример:
+```python
+client = PlatimaClient.from_env_file(
+    env_file_path='.env',
+    httpx_client=httpx.AsyncClient(
+        proxy='http://log:pass@ip:port',
+    )
+)
+```
+
 ---
 
 ## [0.2.1] - 2026-03-24
@@ -12,32 +67,37 @@
 ### Добавлено
 
 #### 1) Удобная поддержка прокси
+
 Ранее прокси можно было добавить только через указание в `httpx_client`, сейчас для
-этого есть отдельный параметр `proxy` в методе `__init__` 
+этого есть отдельный параметр `proxy` в методе `__init__`
 
 Раньше:
+
 ```python
 client = PlatimaClient.from_env_file(
-  
     env_file_path='.env',
     httpx_client=httpx.AsyncClient(
         proxy='http://log:pass@ip:port',
     )
 )
 ```
+
 Сейчас:
+
 ```python
 client = PlatimaClient.from_env_file(
     env_file_path='.env',
     proxy='http://log:pass@ip:port'
 )
 ```
+
 **Важное замечание !**
 
 Если прокси были переданы через параметр `proxy` и через `httpx_client`, прокси переданные
 через `httpx_client` будут игнорироваться
 
 Пример:
+
 ```python
 client = PlatimaClient.from_env_file(
     env_file_path='.env',
@@ -51,18 +111,21 @@ client = PlatimaClient.from_env_file(
 ```
 
 Также, если вы используете фабрику для работы с платежными клиентами, вы можете указать общие
-прокси, которые будут использоваться по умолчанию для всех клиентов, если в самом клиенте не указано другого. Если вы хотите чтобы прокси фабрики
+прокси, которые будут использоваться по умолчанию для всех клиентов, если в самом клиенте не указано другого. Если вы
+хотите чтобы прокси фабрики
 использовались для всех клиентов, независимо от того, указаны ли у них прокси, используйте параметр `strict_proxy` при
 создании фабрики
 
 Пример c "нестрогими" прокси:
 
 `strict_proxy=False` - по умолчанию
+
 - Клиенты со своим прокси → используют свой
 - Клиенты без прокси → используют прокси фабрики
+
 ```python
 payment_factory = PaymentFactory(
-  proxy='http://log:pass@ip:port'
+    proxy='http://log:pass@ip:port'
 )
 
 payment_factory.register_many(
@@ -81,14 +144,17 @@ payment_factory.register_many(
     ]
 )
 ```
+
 Пример с "строгими" прокси:
 
 `strict_proxy=True` - указано вручную
+
 - Все клиенты → используют прокси фабрики (свой прокси игнорируется)
+
 ```python
 payment_factory = PaymentFactory(
-  proxy='http://log:pass@ip:port',
-  strict_proxy=True
+    proxy='http://log:pass@ip:port',
+    strict_proxy=True
 )
 
 payment_factory.register_many(

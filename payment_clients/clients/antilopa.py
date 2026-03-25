@@ -1,4 +1,4 @@
-from typing import  Literal
+from typing import Literal
 from dataclasses import dataclass
 import json
 import base64
@@ -142,7 +142,7 @@ class AntilopaClient(AbstractPaymentClient):
         if data.success_url:
             payload["success_url"] = data.success_url
 
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json=payload,
             headers=self._build_headers(payload)
@@ -160,7 +160,7 @@ class AntilopaClient(AbstractPaymentClient):
             'order_id': payment_id,
             "project_identifier": self.project_id
         }
-        response = await self.post(
+        response = await self.http_client.post(
             url=self.base_url + endpoint,
             json=payload,
             headers=self._build_headers(payload)

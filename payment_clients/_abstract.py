@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable, Type
 from functools import wraps
-from dataclasses import dataclass
 
 import httpx
 from fastapi import APIRouter
@@ -29,51 +28,32 @@ class _PaymentConfig(BaseSettings):
     model_config = SettingsConfigDict(extra='allow')
 
 
-def require_webhooks(func: Callable) -> Callable:
+def _require_webhooks(func: Callable) -> Callable:
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        if not self.supports_webhooks:
-            raise PaymentClientWebhookSupportExc(client_name=self.__class__.__name__)
-        return func(self, *args, **kwargs)
+    def wrapper(cls, *args, **kwargs):
+        if not getattr(cls, 'include_webhooks', False) or not getattr(cls, 'webhook_schema', None):
+            raise PaymentClientWebhookSupportExc(client_name=cls.__name__)
+        return func(cls, *args, **kwargs)
 
     return wrapper
 
 
-@dataclass
-class WebhooksDto:
-    fastapi: APIRouter
-    flask: Blueprint
-    django: django_path
-    aiohttp: RouteTableDef
-
-
-class AbstractPaymentClient(ABC, HttpClient):
+class AbstractPaymentClient(ABC):
     config: _PaymentConfig
     create_payment_dto: TCreatePaymentDto
-    webhook_schema: Type[TPaymentWebhookSchema] = None
+    webhook_schema: Type[TPaymentWebhookSchema] | None = None
     include_webhooks: bool = False
 
     def __init__(
             self,
             callback_url: str = None,
-            proxy: str = None,
             httpx_client: httpx.AsyncClient = None
     ):
-        """Если параметр proxy указан - игнорируется proxy которые указаны в httpx_client"""
-        if proxy:
-            if httpx_client is None:
-                httpx_client = httpx.AsyncClient()
-            httpx_client.proxy = proxy
-
-        HttpClient.__init__(self, httpx_client=httpx_client)
-
+        self.http_client = HttpClient(httpx_client=httpx_client)
         self.callback_url = callback_url
-        self.proxy = proxy
 
-    def update_proxy(self, proxy: str):
-        self.proxy = proxy
-        self._httpx_client.proxy = self.proxy
-
+    async def close(self) -> None:
+        await self.http_client.close()
 
     @classmethod
     @abstractmethod
@@ -102,7 +82,7 @@ class AbstractPaymentClient(ABC, HttpClient):
         """
 
     # =============================== Методы для работы с вебхуками ============================== #
-    @require_webhooks
+    @_require_webhooks
     def check_webhook_sign(self, data: TPaymentWebhookSchema, headers: dict) -> bool:
         """Проверяет подпись запроса
         Args:
@@ -115,211 +95,260 @@ class AbstractPaymentClient(ABC, HttpClient):
                 True - если подпись верна, иначе False
         """
 
-    @require_webhooks
-    def get_webhooks(
-            self,
+    @classmethod
+    @_require_webhooks
+    def get_fastapi_webhook(
+            cls,
             process_func: Callable[[TPaymentWebhookSchema], Awaitable[bool]],
             path: str = ""
-    ) -> WebhooksDto:
-        """Создает ручки-вебхуков для различных фреймворков
+    ) -> APIRouter:
+        """Создает ручку fastapi для обработки вебхука
 
         Args:
-          process_func:
-              Функция обрабатывающая платеж.
-              На вход принимает тело запроса, которое отправляет платежная система в вебухке.
-              Возвращает True - если платеж можно считать успешно засчитанным, иначе False.
-          check_sign_func:
-            Функция проверяющая подпись платежа.
-            На вход принимает:
-                data: BaseModel - тело запроса, которое отправляет платежная система в вебухке.
-                headers: dict | None - заголовки запроса
-          path:
-              Путь к вебхук ручке
-              Пример:
-                  path='/webhook/platima'
-                  path='/webhook/cryptobot'
+            process_func:
+                Функция обрабатывающая платеж.
+                На вход принимает тело запроса, которое отправляет платежная система в вебухке.
+                Возвращает True - если платеж можно считать успешно засчитанным, иначе False.
+            path:
+                Путь к вебхук ручке
+                Пример:
+                    path='/webhook/platima'
+                    path='/webhook/cryptobot'
         Returns:
-           WebhooksDto: датакласс с вебхуками для различных фреймворков
+            APIRouter
         """
+        from fastapi import APIRouter, Request
+        from fastapi.responses import JSONResponse
+        from pydantic import ValidationError
 
-        def _fastapi():
-            from fastapi import APIRouter, Request
-            from fastapi.responses import JSONResponse
-            from pydantic import ValidationError
+        router = APIRouter()
 
-            router = APIRouter()
+        webhook_schema = cls.webhook_schema
 
-            webhook_schema = self.webhook_schema
+        @router.post(path=path)
+        async def webhook(request: Request):
+            content = 'not-ok'
+            status_code = 500
 
-            @router.post(path=path)
-            async def webhook(request: Request):
-                content = 'not-ok'
-                status_code = 500
+            try:
+                content_type = request.headers.get('content-type', '')
 
-                try:
-                    content_type = request.headers.get('content-type', '')
+                if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+                    form_data = await request.form()
+                    raw_data = dict(form_data)
+                else:
+                    raw_data = await request.json()
 
-                    if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
-                        form_data = await request.form()
-                        raw_data = dict(form_data)
-                    else:
-                        raw_data = await request.json()
-
-                    data = webhook_schema(**raw_data)
-                except (ValidationError, ValueError, Exception):
-                    return JSONResponse(content=content, status_code=status_code)
-
-                if not self.check_webhook_sign(data, dict(request.headers)):
-                    return JSONResponse(content=content, status_code=status_code)
-
-                try:
-                    res = await process_func(data)
-                    if res:
-                        content = 'ok'
-                        status_code = 200
-                except Exception:
-                    ...
-
+                data = webhook_schema(**raw_data)
+            except (ValidationError, ValueError, Exception):
                 return JSONResponse(content=content, status_code=status_code)
 
-            return router
+            if not cls.check_webhook_sign(data, dict(request.headers)):
+                return JSONResponse(content=content, status_code=status_code)
 
-        def _aiohttp():
-            import json
-            from aiohttp import web
-            from pydantic import ValidationError
+            try:
+                res = await process_func(data)
+                if res:
+                    content = 'ok'
+                    status_code = 200
+            except Exception:
+                ...
 
-            routes = web.RouteTableDef()
+            return JSONResponse(content=content, status_code=status_code)
 
-            @routes.post(path)
-            async def webhook(request: web.Request) -> web.Response:
-                content = 'not-ok'
-                status_code = 500
+        return router
 
-                try:
-                    content_type = request.headers.get('content-type', '')
-                    if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
-                        form_data = await request.post()
-                        raw_data = dict(form_data)
-                    else:
-                        raw_data = await request.json()
+    @classmethod
+    @_require_webhooks
+    def get_flask_webhook(
+            cls,
+            process_func: Callable[[TPaymentWebhookSchema], Awaitable[bool]],
+            path: str = ""
+    ) -> Blueprint:
+        """Создает ручку flask для обработки вебхука
 
-                    if not isinstance(raw_data, dict):
-                        return web.json_response(data=content, status=status_code)
+        Args:
+            process_func:
+                Функция обрабатывающая платеж.
+                На вход принимает тело запроса, которое отправляет платежная система в вебухке.
+                Возвращает True - если платеж можно считать успешно засчитанным, иначе False.
+            path:
+                Путь к вебхук ручке
+                Пример:
+                    path='/webhook/platima'
+                    path='/webhook/cryptobot'
+        Returns:
+            Blueprint
+        """
+        import json
+        from flask import Blueprint, jsonify, request
+        from pydantic import ValidationError
 
-                    data = self.webhook_schema(**raw_data)
-                except (json.JSONDecodeError, ValidationError, ValueError):
-                    return web.json_response(data=content, status=status_code)
+        blueprint = Blueprint(
+            path.strip('/').replace('/', '_') or f'{cls.__name__[:len("Client")]}_webhook',
+            __name__
+        )
 
-                if not self.check_webhook_sign(data, request.headers):
-                    return web.json_response(data=content, status=status_code)
+        @blueprint.route(path, methods=['POST'])
+        async def webhook():
+            content = 'not-ok'
+            status_code = 500
 
-                try:
-                    result = await process_func(data)
-                    if result:
-                        content = 'ok'
-                        status_code = 200
-                except Exception:
-                    ...
+            try:
+                content_type = request.headers.get('content-type', '')
+                if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+                    raw_data = dict(request.form)
+                else:
+                    raw_data = request.get_json()
 
-                return web.json_response(data=content, status=status_code)
-
-            return routes
-
-        def _flask():
-            import json
-            from flask import Blueprint, jsonify, request
-            from pydantic import ValidationError
-
-            blueprint = Blueprint(
-                path.strip('/').replace('/', '_') or f'{self.__name__[:len("Client")]}_webhook',
-                __name__
-            )
-
-            @blueprint.route(path, methods=['POST'])
-            async def webhook():
-                content = 'not-ok'
-                status_code = 500
-
-                try:
-                    content_type = request.headers.get('content-type', '')
-                    if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
-                        raw_data = dict(request.form)
-                    else:
-                        raw_data = request.get_json()
-
-                    if not isinstance(raw_data, dict):
-                        return jsonify(content), status_code
-
-                    data = self.webhook_schema(**raw_data)
-                except (json.JSONDecodeError, ValidationError, ValueError):
+                if not isinstance(raw_data, dict):
                     return jsonify(content), status_code
 
-                if not self.check_webhook_sign(data, dict(request.headers)):
-                    return jsonify(content), status_code
-
-                try:
-                    res = await process_func(data)
-                    if res:
-                        content = 'ok'
-                        status_code = 200
-                except Exception:
-                    ...
-
+                data = cls.webhook_schema(**raw_data)
+            except (json.JSONDecodeError, ValidationError, ValueError):
                 return jsonify(content), status_code
 
-            return blueprint
+            if not cls.check_webhook_sign(data, dict(request.headers)):
+                return jsonify(content), status_code
 
-        def _django():
-            import json
-            from django.urls import path as django_path
-            from django.http import JsonResponse, HttpRequest
-            from django.views.decorators.csrf import csrf_exempt
-            from django.views.decorators.http import require_POST
-            from pydantic import ValidationError
-            import asyncio
+            try:
+                res = await process_func(data)
+                if res:
+                    content = 'ok'
+                    status_code = 200
+            except Exception:
+                ...
 
-            @csrf_exempt
-            @require_POST
-            async def webhook_view(request: HttpRequest) -> JsonResponse:
-                status_code = 500
-                content = 'not-ok'
+            return jsonify(content), status_code
 
-                try:
-                    content_type = request.headers.get('content-type', '')
-                    if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
-                        raw_data = dict(request.POST)
-                    else:
-                        raw_data = json.loads(request.body)
+        return blueprint
 
-                    if not isinstance(raw_data, dict):
-                        return JsonResponse(data=content, status=status_code)
+    @classmethod
+    @_require_webhooks
+    def get_aiohttp_webhook(
+            cls,
+            process_func: Callable[[TPaymentWebhookSchema], Awaitable[bool]],
+            path: str = ""
+    ) -> RouteTableDef:
+        """Создает ручку aiohttp для обработки вебхука
 
-                    data = self.webhook_schema(**raw_data)
-                except (json.JSONDecodeError, ValidationError, ValueError):
+        Args:
+            process_func:
+                Функция обрабатывающая платеж.
+                На вход принимает тело запроса, которое отправляет платежная система в вебухке.
+                Возвращает True - если платеж можно считать успешно засчитанным, иначе False.
+            path:
+                Путь к вебхук ручке
+                Пример:
+                    path='/webhook/platima'
+                    path='/webhook/cryptobot'
+        Returns:
+            RouteTableDef
+        """
+        import json
+        from aiohttp import web
+        from pydantic import ValidationError
+
+        routes = web.RouteTableDef()
+
+        @routes.post(path)
+        async def webhook(request: web.Request) -> web.Response:
+            content = 'not-ok'
+            status_code = 500
+
+            try:
+                content_type = request.headers.get('content-type', '')
+                if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+                    form_data = await request.post()
+                    raw_data = dict(form_data)
+                else:
+                    raw_data = await request.json()
+
+                if not isinstance(raw_data, dict):
+                    return web.json_response(data=content, status=status_code)
+
+                data = cls.webhook_schema(**raw_data)
+            except (json.JSONDecodeError, ValidationError, ValueError):
+                return web.json_response(data=content, status=status_code)
+
+            if not cls.check_webhook_sign(data, request.headers):
+                return web.json_response(data=content, status=status_code)
+
+            try:
+                result = await process_func(data)
+                if result:
+                    content = 'ok'
+                    status_code = 200
+            except Exception:
+                ...
+
+            return web.json_response(data=content, status=status_code)
+
+        return routes
+
+    @classmethod
+    @_require_webhooks
+    def get_django_webhook(
+            cls,
+            process_func: Callable[[TPaymentWebhookSchema], Awaitable[bool]],
+            path: str = ""
+    ) -> django_path:
+        """Создает ручку django для обработки вебхука
+
+        Args:
+            process_func:
+                Функция обрабатывающая платеж.
+                На вход принимает тело запроса, которое отправляет платежная система в вебухке.
+                Возвращает True - если платеж можно считать успешно засчитанным, иначе False.
+            path:
+                Путь к вебхук ручке
+                Пример:
+                    path='/webhook/platima'
+                    path='/webhook/cryptobot'
+        Returns:
+            django_path:
+                from django.urls import path as django_path
+        """
+        import json
+        from django.http import JsonResponse, HttpRequest
+        from django.views.decorators.csrf import csrf_exempt
+        from django.views.decorators.http import require_POST
+        from pydantic import ValidationError
+
+        @csrf_exempt
+        @require_POST
+        async def webhook_view(request: HttpRequest) -> JsonResponse:
+            status_code = 500
+            content = 'not-ok'
+
+            try:
+                content_type = request.headers.get('content-type', '')
+                if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+                    raw_data = dict(request.POST)
+                else:
+                    raw_data = json.loads(request.body)
+
+                if not isinstance(raw_data, dict):
                     return JsonResponse(data=content, status=status_code)
 
-                if not self.check_webhook_sign(data, dict(request.headers)):
-                    return JsonResponse(data=content, status=status_code)
-
-                try:
-                    result = await process_func(data)
-                    if result:
-                        content = 'ok'
-                        status_code = 200
-                except Exception:
-                    ...
-
+                data = cls.webhook_schema(**raw_data)
+            except (json.JSONDecodeError, ValidationError, ValueError):
                 return JsonResponse(data=content, status=status_code)
 
-            clean_path = path.lstrip('/')
-            view_name = path.lstrip('/').replace('/', '_') or f'{self.__name__[:len("Client")]}_webhook'
+            if not cls.check_webhook_sign(data, dict(request.headers)):
+                return JsonResponse(data=content, status=status_code)
 
-            return django_path(clean_path, webhook_view, name=view_name)
+            try:
+                result = await process_func(data)
+                if result:
+                    content = 'ok'
+                    status_code = 200
+            except Exception:
+                ...
 
-        return WebhooksDto(
-            flask=_flask(),
-            fastapi=_fastapi(),
-            django=_django(),
-            aiohttp=_aiohttp()
-        )
+            return JsonResponse(data=content, status=status_code)
+
+        clean_path = path.lstrip('/')
+        view_name = path.lstrip('/').replace('/', '_') or f'{cls.__name__[:len("Client")]}_webhook'
+
+        return django_path(clean_path, webhook_view, name=view_name)

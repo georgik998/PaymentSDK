@@ -1,6 +1,9 @@
 # 🏦 Набор готовых интеграций платежных систем
 
-# Payment_clients v0.2.1
+# Payment_clients v0.3.0
+
+#### UPD: Все версии до 1.0.0 являются тестовыми, находящимися в процессе разработки. Первая стабильная и полностью рабочая версия появится только с выходом v1.0.0
+
 
 ## ❓ В чем суть проекта
 
@@ -109,8 +112,6 @@ async def main() -> tuple[PaymentDto, PaymentDto]:
                 api_key_project='your-project-id',
                 project_id=1,
                 callback_url='https://your-callback-url',
-                # Также можно указать прокси (подробнее в CHANGELOG.md, версия 0.2.1)
-                proxy='http://user:password@proxy.example.com:8080'
             ),
             # Так же можно не указывать параметры вручную, а считать их из .env файла.
             # Чтобы узнать нейминг/формат записи переменных .env файла, посмотрите атрибут config 
@@ -173,7 +174,7 @@ async def main() -> FastAPI:
         api_key_project='your-project-id',
         project_id=1,
     )
-    platima_webhooks = platima_client.get_webhooks(
+    platima_fastapi_webhook = platima_client.get_fastapi_webhook(
         process_func=platima_process_webhook,
         path=PLATIMA_WEBHOOK_PATH
     )
@@ -186,8 +187,8 @@ async def main() -> FastAPI:
     async def ping():
         return "pong"
 
-    # Подключаем нужный для нагешо фреймворка вебхук с адресом PLATIMA_WEBHOOK_PATH
-    app.include_router(platima_webhooks.fastapi)
+    # Подключаем вебхук с адресом PLATIMA_WEBHOOK_PATH
+    app.include_router(platima_fastapi_webhook)
     return app
 
 
